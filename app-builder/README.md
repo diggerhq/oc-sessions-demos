@@ -47,6 +47,19 @@ npm install
 npm run dev                     # http://localhost:3000
 ```
 
+### Just want to see the UI? (no keys, no backend)
+
+A tiny fake OpenComputer lives in [`mock/`](mock) and streams a scripted build. In
+`.env.local`, point both URLs at it (`OC_API_URL` and `NEXT_PUBLIC_OC_API_URL` =
+`http://localhost:8787`; any placeholder works for the two keys), then:
+
+```bash
+npm run mock        # terminal 1 → http://localhost:8787
+npm run dev         # terminal 2 → http://localhost:3000
+```
+
+Create a project and watch the chat, tool-call cards, and preview pane come to life.
+
 ## Deploy (Vercel)
 
 ```bash
