@@ -58,14 +58,31 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .bubble.you { align-self: flex-end; background: #221b3a; color: #e6dcff; border: 1px solid #352a55; }
 .bubble.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
 
-/* Tool-call shows */
-.tool { align-self: flex-start; max-width: 88%; font-family: var(--mono); font-size: 12.5px; background: var(--panel2);
-  border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px; color: var(--dim); }
-.tool .head { color: var(--accent); }
-.tool .out { color: var(--dim); white-space: pre-wrap; word-break: break-word; margin-top: 3px; }
-.note { align-self: center; color: var(--dim); font-size: 12px; }
-.note.ok { color: var(--ok); }
-.note.err { color: var(--err); font-family: var(--mono); }
+/* Model narration — the agent thinking out loud as it works (progress-level messages) */
+.narrate { align-self: flex-start; max-width: 88%; color: var(--fg); opacity: 0.9; }
+.narrate::before { content: "✳"; color: var(--accent); margin-right: 7px; }
+
+/* Commands the agent runs */
+.cmd { align-self: flex-start; max-width: 94%; font-family: var(--mono); font-size: 12.5px; color: var(--fg);
+  background: var(--panel2); border: 1px solid var(--line); border-left: 2px solid var(--accent);
+  border-radius: 7px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; }
+.cmd .prompt { color: var(--accent); margin-right: 7px; }
+
+/* Command output (terminal-style) */
+.exec { align-self: flex-start; max-width: 94%; margin-top: -4px; }
+.exec-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.exit { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 5px; }
+.exit.ok { color: var(--ok); border: 1px solid #1f3a29; }
+.exit.bad { color: var(--err); border: 1px solid #3a1f1f; }
+.ref { font-size: 11px; color: var(--dim); }
+.exec-out { margin: 0; font-family: var(--mono); font-size: 12px; color: var(--dim); background: #080b12;
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; max-height: 240px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word; }
+
+/* Separators + errors */
+.sep { align-self: center; color: var(--dim); font-size: 12px; }
+.sep.done { color: var(--ok); }
+.err { align-self: flex-start; max-width: 94%; color: var(--err); font-family: var(--mono); font-size: 12.5px; }
 
 /* Composer */
 .composer { display: flex; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--line); }

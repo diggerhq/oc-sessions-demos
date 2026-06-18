@@ -64,9 +64,10 @@ export default function Page() {
   function openStream(id: string, token: string) {
     esRef.current?.close();
     tokenRef.current = token;
-    // level=progress → the agent's build steps (tool calls, commands) + its messages.
-    // Each event's seq is the SSE id, so EventSource auto-resumes on reconnect.
-    const es = new EventSource(`${OC}/v3/sessions/${id}/events?stream=sse&level=progress&token=${token}`);
+    // level=internal → every build step: tool calls + commands as cards, plus the
+    // agent's messages and your steers. after=0 replays the full log on open (the whole
+    // conversation); each event's seq is the SSE id, so EventSource auto-resumes on reconnect.
+    const es = new EventSource(`${OC}/v3/sessions/${id}/events?stream=sse&level=internal&after=0&token=${token}`);
     es.onopen = () => setStatus("live");
     es.onmessage = (e) => {
       const ev = JSON.parse(e.data) as Ev;
@@ -216,34 +217,44 @@ function Preview({ events }: { events: Ev[] }) {
   );
 }
 
-// Render one event. Switch on `type` — never parse prose.
+// Render one event as a build-trace item. Switch on `type` — never parse prose.
+// The trace shows what the agent actually does: its narration, the commands it runs,
+// and their output. (The model's private reasoning is not surfaced by the API.)
 function EventItem({ ev }: { ev: Ev }) {
   const b = ev.body ?? {};
   switch (ev.type) {
     case "user.message":
       return <div className="bubble you">{b.text}</div>;
     case "agent.message":
+      // user-level = an answer / result (bubble); progress = the model narrating its work
       return ev.level === "user"
         ? <div className="bubble agent">{b.text}</div>
-        : <div className="note">{b.text}</div>;
+        : <div className="narrate">{b.text}</div>;
     case "tool.call":
-      return <div className="tool"><span className="head">↳ {b.tool ?? "tool"}</span> {b.args_summary ?? ""}</div>;
-    case "exec.completed":
+      return <div className="cmd"><span className="prompt">$</span>{b.args_summary || b.tool || "tool"}</div>;
+    case "exec.completed": {
+      const ok = Number(b.exit_code) === 0;
       return (
-        <div className="tool">
-          <div className="head">$ {b.command}</div>
-          <div className="out">exit {b.exit_code} · {b.summary ?? ""}</div>
+        <div className="exec">
+          <div className="exec-head">
+            <span className={`exit ${ok ? "ok" : "bad"}`}>exit {b.exit_code}</span>
+            {b.content_ref && <span className="ref">large output{b.bytes ? ` · ${b.bytes}B` : ""}</span>}
+          </div>
+          {b.summary ? <pre className="exec-out">{b.summary}</pre> : null}
         </div>
       );
+    }
     case "turn.started":
-      return <div className="note">● working…</div>;
+      return <div className="sep">● working…</div>;
     case "turn.completed":
-      return <div className={`note ${b.yield_reason === "needs_input" ? "" : "ok"}`}>
-        {b.yield_reason === "needs_input" ? "✋ waiting for you" : `✓ done (${b.yield_reason ?? "completed"})`}
+      return <div className={`sep ${b.yield_reason === "needs_input" ? "" : "done"}`}>
+        {b.yield_reason === "needs_input" ? "✋ waiting for you" : "✓ done"}
       </div>;
+    case "agent.result":
+      return b.num_turns ? <div className="sep">finished · {b.num_turns} steps</div> : null;
     default:
       if (ev.type.startsWith("error"))
-        return <div className="note err">{b.code ?? ev.type}: {b.message ?? ""}</div>;
-      return b.text || b.summary ? <div className="note">{b.text ?? b.summary}</div> : null;
+        return <div className="err">{b.code ?? ev.type}: {b.message ?? ""}</div>;
+      return b.text || b.summary ? <div className="narrate">{b.text ?? b.summary}</div> : null;
   }
 }
