@@ -1,46 +1,42 @@
 # App Builder on OpenComputer
 
-A mini **Lovable / v0 / bolt.new** — chat to build a web app, watch the agent work in a
-real sandbox, steer it, come back to it later. The whole thing is a Next.js app and a
-prompt. There is **no agent backend to build**: OpenComputer's
-[Durable Agent Sessions](https://docs.opencomputer.dev/agent-sessions) runs the agent as a
-durable, streamable, steerable session on sandboxed compute — you just call it.
+A small Lovable/v0-style app builder: describe a web app, an agent builds and runs it in a
+sandbox, and you keep chatting to change it. It's a Next.js app plus a prompt — the agent
+runs on OpenComputer [Durable Agent Sessions](https://docs.opencomputer.dev/agent-sessions),
+so there's no separate agent backend to operate.
 
-This repo is both the app and a step-by-step guide to building one like it.
+This repo is the app, and a walkthrough of how it's built.
 
-![Durable Agent Sessions architecture: your app starts and steers a durable event-log session and streams it live; a runtime (the brain) reads and appends to the log and acts in a sandbox (the hands); the model runs on your key from the secret store, which never enters a sandbox.](docs/architecture.svg)
+![Durable Agent Sessions architecture: the app starts and steers a durable event-log session and streams it live; a runtime (the brain) reads and appends to the log and acts in a sandbox (the hands); the model runs on your key from the secret store, which never enters a sandbox.](docs/architecture.svg)
 
-## What you build vs. what OpenComputer handles
+## What you write vs. what OpenComputer provides
 
-| You write | OpenComputer handles |
+| You write | OpenComputer provides |
 | --- | --- |
-| a prompt (the agent) | the agent loop + a sandbox to run real commands in |
-| ~3 API calls (`src/oc.ts`) | a durable event log of every step |
-| a chat UI that renders events | live streaming + resume from any point |
-| — | hibernation while idle (≈ free), wake on the next message |
-| — | browser-safe tokens so the UI talks to OC directly |
+| a prompt (the agent) | the agent loop and a sandbox to run commands in |
+| ~3 API calls (`src/oc.ts`) | a durable log of every step |
+| a chat UI that renders events | live streaming and resume from any point |
+| | hibernation while idle, wake on the next message |
+| | session-scoped tokens the browser can use directly |
 
-The hard parts of an "AI app builder" — persistent build sessions, sandboxed execution,
-streaming the work to a browser, picking a project back up tomorrow — are the platform's
-job. What's left is small enough to read in one sitting.
+Persistent build sessions, sandboxed execution, streaming to the browser, and resuming a
+project later are handled by the platform.
 
----
+## How it's built
 
-## Build one, step by step
+The OpenComputer calls are in [`src/oc.ts`](src/oc.ts) (~40 lines) plus two `/api` routes.
+Base URL `https://api.opencomputer.dev/v3`. Management calls use the org API key
+(server-side only); the browser uses a client token.
 
-Everything that touches OpenComputer lives in **[`src/oc.ts`](src/oc.ts)** (~40 lines) and
-two `/api` routes. Base URL: `https://api.opencomputer.dev/v3`. Management calls use your
-**org API key** (server-side only); the browser uses a **client token**.
+### 1. Define the agent
 
-### Step 1 — Define the agent (once)
-
-An [agent](https://docs.opencomputer.dev/agent-sessions/agents) is the reusable "what": a
-name, a model, a prompt. Pass your Anthropic key inline — OpenComputer seals it in its
+An [agent](https://docs.opencomputer.dev/agent-sessions/agents) is a name, model, and
+prompt. The Anthropic key is passed inline and stored in OpenComputer's
 [secret store](https://docs.opencomputer.dev/agent-sessions/authentication#model-credentials);
-it never enters a sandbox. Creating is idempotent by name, so we just do it on first use:
+it doesn't enter the sandbox. Creation is idempotent by name, so this runs on first use:
 
 ```ts
-// src/oc.ts — runs on first project, then cached
+// src/oc.ts
 export function ensureAgent() {
   agentId ??= oc("/agents", {
     method: "POST",
@@ -48,7 +44,7 @@ export function ensureAgent() {
       name: "app-builder",
       model: "anthropic/claude-opus-4-8",
       runtime: "claude",
-      prompt: BUILDER_AGENT_PROMPT,   // "build a web app in the sandbox, keep it running…"
+      prompt: BUILDER_AGENT_PROMPT,
       key: process.env.ANTHROPIC_API_KEY,
     }),
   }).then((a) => a.id);
@@ -56,14 +52,13 @@ export function ensureAgent() {
 }
 ```
 
-The prompt is the *only* thing that makes this an "app builder" vs. anything else — see
-[`src/agent.ts`](src/agent.ts). **OpenComputer gives the agent the tools** (`bash`, `read`,
-`write`, `ls`, `use_repo`) against an isolated sandbox; you don't wire any of that up.
+The prompt ([`src/agent.ts`](src/agent.ts)) is what makes this an app builder. The agent's
+tools (`bash`, `read`, `write`, `ls`, `use_repo`) run against the sandbox.
 
-### Step 2 — Start a project (a session)
+### 2. Start a project (a session)
 
-A "project" is a [session](https://docs.opencomputer.dev/agent-sessions/sessions). Starting
-one returns the session **and** a browser-safe `client_token`:
+A project is a [session](https://docs.opencomputer.dev/agent-sessions/sessions). Starting
+one returns the session and a browser-safe `client_token`:
 
 ```ts
 // src/oc.ts
@@ -71,30 +66,30 @@ export async function createProject(input: string) {
   const agent = await ensureAgent();
   const { session, client_token } = await oc("/sessions", {
     method: "POST",
-    body: JSON.stringify({ agent, input }),   // input = "build a todo app with dark UI"
+    body: JSON.stringify({ agent, input }),
   });
   return { id: session.id, token: client_token };
 }
 ```
 
-This is the only place the org key starts a run. Your route hands the browser just the id
-and the token ([`src/app/api/projects/route.ts`](src/app/api/projects/route.ts)):
+The route returns the id and token to the browser
+([`src/app/api/projects/route.ts`](src/app/api/projects/route.ts)):
 
 ```ts
 export async function POST(req: Request) {
   const { input } = await req.json();
-  return Response.json(await createProject(input));   // → { id, token }
+  return Response.json(await createProject(input)); // → { id, token }
 }
 ```
 
-**OpenComputer handles the rest:** it provisions the sandbox, runs the agent, and records
-every step in a durable log — even if your server restarts, or the user closes the tab.
+OpenComputer provisions the sandbox, runs the agent, and records each step in a durable
+log that survives a server restart or a closed tab.
 
-### Step 3 — Watch it build, live
+### 3. Stream it
 
-From the browser, open an `EventSource` straight to OpenComputer with the client token —
-no server in the loop. `level=internal` streams the full build trace (commands + output),
-`after=0` replays the whole log so re-opening a project shows its history:
+From the browser, open an `EventSource` to OpenComputer with the client token. `level=internal`
+includes the command trace; `after=0` replays the log so reopening a project shows its
+history:
 
 ```ts
 // src/app/page.tsx (client)
@@ -104,13 +99,13 @@ const es = new EventSource(
 es.onmessage = (e) => addEvent(JSON.parse(e.data));
 ```
 
-Each event carries its `seq` as the SSE id, so a dropped connection **resumes itself** via
-`Last-Event-ID` — you write zero reconnection code.
+Each event's `seq` is the SSE id, so `EventSource` reconnects from where it left off via
+`Last-Event-ID`.
 
-### Step 4 — Steer it
+### 4. Steer it
 
-Send a follow-up at any time, also straight from the browser. The session wakes (from
-hibernation if idle) and continues with full context:
+Send a follow-up at any time, also from the browser. An idle session wakes and continues
+with its context:
 
 ```ts
 // src/app/page.tsx (client)
@@ -121,79 +116,58 @@ await fetch(`${OC}/v3/sessions/${id}/messages`, {
 });
 ```
 
-### Step 5 — Render the trace
+### 5. Render events
 
-Every step is an [event](https://docs.opencomputer.dev/agent-sessions/events) with a stable
-`type` — **switch on it, never parse prose**. That's the entire UI logic
-([`src/app/page.tsx`](src/app/page.tsx)):
+Each step is an [event](https://docs.opencomputer.dev/agent-sessions/events) with a typed
+`type` field; the UI switches on it ([`src/app/page.tsx`](src/app/page.tsx)):
 
 ```tsx
 switch (ev.type) {
   case "user.message":   return <Bubble you>{ev.body.text}</Bubble>;
-  case "agent.message":  return <Bubble>{ev.body.text}</Bubble>;        // the agent talking
+  case "agent.message":  return <Bubble>{ev.body.text}</Bubble>;
   case "tool.call":      return <Command>$ {ev.body.args_summary}</Command>;
   case "exec.completed": return <Output exit={ev.body.exit_code}>{ev.body.summary}</Output>;
-  case "turn.completed": return <Done />;                                // the "done" signal
+  case "turn.completed": return <Done />;
 }
 ```
 
-New event types render fine from their `text`/`summary`, so the platform can add more
-without breaking your UI.
-
-**That's the whole backend.** No queue, no database, no streaming infra, no sandbox
-orchestration — `src/oc.ts` plus those two routes.
-
----
+Unknown types fall back to their `text`/`summary`, so new ones don't break the UI. That
+covers the backend: `src/oc.ts` and the two routes.
 
 ## Run it
 
-You need two keys: an **OpenComputer API key** ([app.opencomputer.dev](https://app.opencomputer.dev))
-and your **Anthropic key**.
+You need an OpenComputer API key ([app.opencomputer.dev](https://app.opencomputer.dev)) and
+an Anthropic key.
 
 ```bash
-cp .env.example .env.local      # add OPENCOMPUTER_API_KEY + ANTHROPIC_API_KEY
+cp .env.example .env.local      # set OPENCOMPUTER_API_KEY + ANTHROPIC_API_KEY
 npm install
 npm run dev                     # http://localhost:3000
 ```
 
-**See the UI with no keys / no backend** — a tiny fake OpenComputer in [`mock/`](mock)
-streams a scripted build. Point the URLs at it (`.env.local`:
-`OC_API_URL` + `NEXT_PUBLIC_OC_API_URL` = `http://localhost:8787`, any placeholder keys):
+To preview the UI without keys, [`mock/`](mock) is a small fake of the API that streams a
+scripted build. Point both URLs at it (`.env.local`: `OC_API_URL` and `NEXT_PUBLIC_OC_API_URL`
+= `http://localhost:8787`, with placeholder keys), then run `npm run mock` and `npm run dev`.
 
-```bash
-npm run mock                    # terminal 1
-npm run dev                     # terminal 2
-```
-
-**Deploy** (Vercel — it's just a Next.js app; nothing is always-on):
-
-```bash
-npm i -g vercel && vercel
-vercel env add OPENCOMPUTER_API_KEY
-vercel env add ANTHROPIC_API_KEY
-vercel --prod                   # → a public URL
-```
+Deploy is standard Next.js (e.g. `vercel`); set the two keys as environment variables.
 
 ## Layout
 
 ```
-src/
-  oc.ts              the entire OpenComputer backend — create / steer / mint token
-  agent.ts           the prompt (the only thing that makes this an "app builder")
-  app/
-    page.tsx         the 3-pane UI: projects · chat trace · preview
-    api/projects/    POST start a project · GET list · POST :id/token (mint)
-mock/                a dependency-free fake OC for local UI testing (not deployed)
+src/oc.ts              the OpenComputer calls: create / steer / mint token
+src/agent.ts           the prompt
+src/app/page.tsx       the UI: projects · chat trace · preview
+src/app/api/projects/  start a project · list · mint a client token
+mock/                  a fake OC for local UI testing (not deployed)
 docs/architecture.svg
 ```
 
 ## Notes
 
-- **First run is slow** (~a minute or two) while the sandbox cold-starts; steers are fast
-  (the sandbox is warm). The UI shows a "spinning up a sandbox" state meanwhile.
-- **Live preview** of the running app is the one piece left as a seam: the agent runs a dev
-  server in its sandbox, and the UI iframes a `preview.url` event when the platform emits
-  one (coming soon). Until then the preview pane shows a placeholder; everything else works.
-- **Sharing:** the project link carries only the session id; opening it mints a fresh
-  client token server-side. For a real product, gate token minting behind your own auth and
-  use session [`limits`](https://docs.opencomputer.dev/agent-sessions/sessions) to cap spend.
+- First run takes ~1–2 minutes while the sandbox cold-starts; steers are fast.
+- Live preview isn't wired yet: the agent runs a dev server in the sandbox, and the UI will
+  iframe a `preview.url` event once the platform emits one. The preview pane shows a
+  placeholder until then.
+- The project link carries the session id; opening it mints a client token server-side. For
+  production, require auth before minting and set session
+  [`limits`](https://docs.opencomputer.dev/agent-sessions/sessions) to cap spend.
