@@ -54,9 +54,9 @@ Base `https://api.opencomputer.dev/v3`. Org key (server) for management; client 
   `Event = { id, seq, ts, session, actor, type, level, body, refs }`. Switch on **`type`**.
   `level` cumulative: `user ⊂ progress ⊂ internal`; `after`/`Last-Event-ID` to resume.
 - **Steer** — `POST /sessions/:id/messages { text, idempotency_key? }` → `202`.
-- **Runtime tools (`claude`)** — `bash · read · write · ls · use_repo` (public repos in v1)
-  · `say` (→ user message; final = result) · `ask` (→ `needs_input`). `deliver`/`reconcile`
-  coming soon.
+- **Runtime tools (`claude`)** — `bash · read · write · ls` · `say` (→ user message;
+  final = result) · `ask` (→ `needs_input`). (`use_repo` exists for public repos but this
+  demo builds fresh apps, so it isn't used.) `deliver`/`reconcile` coming soon.
 
 ## 4. The app — `app-builder`
 

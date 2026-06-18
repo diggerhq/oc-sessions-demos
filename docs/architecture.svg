@@ -97,7 +97,7 @@
 
   <!-- ============ Legend ============ -->
   <rect x="44" y="518" width="22" height="14" rx="4" fill="#f0eff7" stroke="#7c7aae"/>
-  <text x="74" y="529" font-size="11" fill="#6b6b6b">durable (survives anything)</text>
+  <text x="74" y="529" font-size="11" fill="#6b6b6b">durable, resumable event log</text>
 
   <rect x="252" y="518" width="22" height="14" rx="4" fill="#ffffff" stroke="#8a8a8a" stroke-width="1.5" stroke-dasharray="3 3"/>
   <text x="282" y="529" font-size="11" fill="#6b6b6b">disposable (replaceable any moment)</text>

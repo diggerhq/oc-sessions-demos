@@ -53,7 +53,7 @@ export function ensureAgent() {
 ```
 
 The prompt ([`src/agent.ts`](src/agent.ts)) is what makes this an app builder. The agent's
-tools (`bash`, `read`, `write`, `ls`, `use_repo`) run against the sandbox.
+tools (`bash`, `read`, `write`, `ls`) run against the sandbox.
 
 ### 2. Start a project (a session)
 

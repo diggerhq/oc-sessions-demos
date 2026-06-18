@@ -34,10 +34,11 @@ async function oc(path: string, init: RequestInit = {}) {
 let agentId: Promise<string> | null = null;
 export function ensureAgent(): Promise<string> {
   if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not set");
+  // Reset the cache on failure so a transient error doesn't stick until restart.
   agentId ??= oc("/agents", {
     method: "POST",
     body: JSON.stringify({ ...BUILDER_AGENT, key: ANTHROPIC_KEY }),
-  }).then((a) => a.id as string);
+  }).then((a) => a.id as string).catch((e) => { agentId = null; throw e; });
   return agentId;
 }
 

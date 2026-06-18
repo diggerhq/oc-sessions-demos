@@ -82,7 +82,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 /* Separators + errors */
 .sep { align-self: center; color: var(--dim); font-size: 12px; }
 .sep.done { color: var(--ok); }
+.sep.bad { color: var(--err); }
 .err { align-self: flex-start; max-width: 94%; color: var(--err); font-family: var(--mono); font-size: 12.5px; }
+
+/* Error banner */
+.banner { margin: 10px 16px 0; padding: 9px 12px; border-radius: 8px; background: #2a1416;
+  border: 1px solid #5a2a2a; color: #ffb4b4; font-size: 13px; cursor: pointer; }
+.banner .dismiss { float: right; color: var(--dim); margin-left: 12px; }
 
 /* Composer */
 .composer { display: flex; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--line); }

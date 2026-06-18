@@ -30,6 +30,7 @@ export default function Page() {
   const [steer, setSteer] = useState("");
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
   const tokenRef = useRef<string>("");
@@ -48,17 +49,26 @@ export default function Page() {
     try {
       const list = await (await fetch("/api/projects")).json();
       if (Array.isArray(list)) setProjects(list);
-    } catch { /* offline / not configured — sidebar just stays empty */ }
+      else setError(list?.error || "Couldn't load projects.");
+    } catch {
+      setError("Couldn't reach the server — is it running, with the API keys set?");
+    }
   }
 
   async function open(id: string) {
     setSelected(id);
     setEvents([]);
+    setError(null);
     setStatus("connecting");
     history.replaceState(null, "", `?p=${id}`);
-    const { token, error } = await (await fetch(`/api/projects/${id}/token`, { method: "POST" })).json();
-    if (error) return setStatus("idle");
-    openStream(id, token);
+    try {
+      const { token, error } = await (await fetch(`/api/projects/${id}/token`, { method: "POST" })).json();
+      if (error || !token) { setStatus("idle"); return setError(error || "Couldn't open this project."); }
+      openStream(id, token);
+    } catch {
+      setStatus("idle");
+      setError("Couldn't open this project.");
+    }
   }
 
   function openStream(id: string, token: string) {
@@ -81,6 +91,7 @@ export default function Page() {
     const input = newText.trim();
     if (!input || starting) return;
     setStarting(true);
+    setError(null);
     try {
       const { id, token, error } = await (
         await fetch("/api/projects", {
@@ -89,7 +100,7 @@ export default function Page() {
           body: JSON.stringify({ input }),
         })
       ).json();
-      if (error) return alert(error);
+      if (error || !id) { setError(error || "Couldn't start the project."); return; }
       try { localStorage.setItem(titleKey(id), input.slice(0, 48)); } catch {}
       setProjects((p) => [{ id, status: "queued" }, ...p]);
       setNewText("");
@@ -98,6 +109,8 @@ export default function Page() {
       setStatus("connecting");
       history.replaceState(null, "", `?p=${id}`);
       openStream(id, token);
+    } catch {
+      setError("Couldn't start the project.");
     } finally {
       setStarting(false);
     }
@@ -107,17 +120,24 @@ export default function Page() {
     const text = steer.trim();
     if (!text || !selected) return;
     setSteer("");
-    await fetch(`${OC}/v3/sessions/${selected}/messages`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
+    try {
+      const res = await fetch(`${OC}/v3/sessions/${selected}/messages`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setSteer(text);   // keep what they typed
+      setError("Couldn't send that message — try again.");
+    }
   }
 
   function newProject() {
     esRef.current?.close();
     setSelected(null);
     setEvents([]);
+    setError(null);
     setStatus("idle");
     history.replaceState(null, "", window.location.pathname);
   }
@@ -145,6 +165,11 @@ export default function Page() {
       </aside>
 
       <main className="main">
+        {error && (
+          <div className="banner" onClick={() => setError(null)} title="dismiss">
+            {error}<span className="dismiss">✕</span>
+          </div>
+        )}
         {selected ? (
           <>
             <div className="topbar">
@@ -245,10 +270,14 @@ function EventItem({ ev }: { ev: Ev }) {
     }
     case "turn.started":
       return <div className="sep">● working…</div>;
-    case "turn.completed":
-      return <div className={`sep ${b.yield_reason === "needs_input" ? "" : "done"}`}>
-        {b.yield_reason === "needs_input" ? "✋ waiting for you" : "✓ done"}
-      </div>;
+    case "turn.completed": {
+      const r = b.yield_reason;
+      if (r === "needs_input") return <div className="sep">✋ waiting for you</div>;
+      if (r === "completed" || r == null) return <div className="sep done">✓ done</div>;
+      if (r === "canceled") return <div className="sep">■ canceled</div>;
+      // error / deadline_exceeded / budget_exceeded / max_turns
+      return <div className="sep bad">⚠ stopped: {String(r).replace(/_/g, " ")}</div>;
+    }
     case "agent.result":
       return b.num_turns ? <div className="sep">finished · {b.num_turns} steps</div> : null;
     default:
