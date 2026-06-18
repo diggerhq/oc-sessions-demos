@@ -128,6 +128,10 @@ export default function Page() {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  // After turn.started but before any real output, the sandbox is provisioning.
+  const hasWork = events.some((e) => ["tool.call", "exec.completed", "agent.message"].includes(e.type));
+  const waiting = status === "live" && events.length > 0 && !hasWork;
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -156,7 +160,10 @@ export default function Page() {
             </div>
             <div className="feed" ref={feedRef}>
               {events.map((ev) => <EventItem key={ev.id} ev={ev} />)}
-              {events.length === 0 && <div className="note">waiting for the agent’s first step…</div>}
+              {events.length === 0 && <div className="sep">connecting…</div>}
+              {waiting && (
+                <div className="sep">⏳ spinning up a fresh sandbox — the first run can take a minute or two…</div>
+              )}
             </div>
             <div className="composer">
               <input
