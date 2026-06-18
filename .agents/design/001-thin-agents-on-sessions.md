@@ -8,8 +8,8 @@ Sessions). Companion to the launch SoT in `oc-bg-agents/.agents/work/launch-dura
 
 ## 1. Thesis
 
-The hard part of an "agent product" — Greptile, Devin, a build-in-public agent
-terminal — is not the prompt. It's the **infrastructure around the agent run**: a
+The hard part of an "agent product" — Greptile, Devin, a Lovable-style app
+builder — is not the prompt. It's the **infrastructure around the agent run**: a
 durable record of every step, a live stream to a UI, the ability to steer a run
 mid-flight, sandboxed compute the agent can act in, and reliable delivery of results.
 Each company rebuilds that stack.
@@ -47,7 +47,7 @@ project. There is **no shared library** and no cross-app imports. The only thing
 three share is the **OpenComputer backend** (the platform) — each talks to it directly.
 
 ```
-web-terminal/      a shareable, resumable agent terminal
+app-builder/       chat to build a web app (Lovable / v0 / bolt.new style)
 pr-reviewer/       a PR reviewer that posts a comment
 slack-teammate/    a Slack teammate with durable threads
 README.md          the gallery index
@@ -85,7 +85,7 @@ the browser a **client token** and never exposes the org key (the prescribed pat
 ## 3a. Deployment (each app → a public URL; none always-on)
 
 Each app must be demoable from a **public URL** (a real GitHub PR, a real Slack
-workspace, a shareable terminal link). **No app needs an always-on container — and that
+workspace, a shareable project link). **No app needs an always-on container — and that
 is the thesis showing up in the deploy model.** Because OpenComputer owns the durable
 state, the long-running compute, *and* the live stream, each app collapses to a
 **stateless edge**: it starts or steers a session, hands out a token or posts a
@@ -102,7 +102,7 @@ takes off your plate, so we avoid them by design:
 **Deploy target is therefore per-app, by nature:**
 | App | Nature | Deploy |
 |---|---|---|
-| `web-terminal/` | has a frontend | **Next.js + Vercel** (static page + one serverless route to mint the session/token) |
+| `app-builder/` | has a frontend | **Next.js + Vercel** (static page + serverless routes for projects/token) |
 | `pr-reviewer/` | pure backend | **Cloudflare Worker** (`wrangler deploy`) |
 | `slack-teammate/` | pure backend | **Cloudflare Worker** (`wrangler deploy`) |
 
@@ -155,22 +155,34 @@ otherwise).
 
 ## 5. The three apps
 
-### 5a. `web-terminal/` — a shareable, resumable agent terminal  *(build first)*
-- **What:** a single page. Type a task → it streams live; a steer box sends follow-ups;
-  the URL is shareable and re-openable. The demo *is* breaking it: close the tab / drop
-  wifi → reopen, the stream resumes from the cursor; walk away → the session idles and
-  the sandbox hibernates (≈ free) → come back, steer, it wakes with full context.
-- **Glue you write:** one server route (`POST /api/tasks` → `startSession` → return
-  `{ session_id, client_token }`) + a page that opens an `EventSource` with `?token=`
-  and posts steers **directly to OC** with the client token. The server holds the org
-  key and does nothing else. ~one route + ~40 lines of browser JS.
-- **Deploy:** Next.js on Vercel (static page + the one serverless route).
-- **OC made load-bearing:** durable log, SSE resume, browser-safe client tokens, steer,
-  hibernation, sandboxed compute — nearly the whole surface in one story.
-- **Default task:** "clone this public repo, run its tests, tell me what broke" (visual,
-  self-contained, steer-friendly: "also check the CI config"). No external app creds.
-- **Hard without us:** step persistence + a reconnect-by-cursor stream + scoped browser
-  tokens + sandbox lifecycle — a week of plumbing for a page of glue.
+### 5a. `app-builder/` — chat to build a web app  *(built first)* ✅
+- **What:** a mini Lovable / v0 / bolt.new. Three-pane UI: **projects** (left), **chat**
+  with tool-call cards (middle), **live preview** (right). Describe an app → an agent
+  scaffolds + runs it in a sandbox; keep chatting to change it. Each project is durable,
+  resumable, and hibernates when idle — come back to it any time.
+- **Mapping (the product onto the API):** project = session · chat = the event stream
+  (`agent.message` bubbles, `tool.call`/`exec.completed` cards) · new project =
+  `POST /sessions` on the `app-builder` agent · projects list = `GET /sessions?agent=…` ·
+  a message = a steer. Opening a project replays the durable log = the whole conversation.
+- **Glue you write:** three `/api` routes (list/create projects, mint token) — the entire
+  backend is `src/oc.ts`. The browser streams + steers **directly** against OC with the
+  client token; the server only holds the org key.
+- **Deploy:** Next.js on Vercel (static page + three serverless routes).
+- **OC made load-bearing:** durable multi-project state, the event log + tool-call stream,
+  resume, steer, hibernation, sandboxed compute, browser-safe tokens.
+- **Preview = the deferred seam (built everything except this).** The agent runs a dev
+  server in its sandbox; surfacing it needs a sandbox **preview URL exposed through the
+  session.** Recommended reconciliation: the platform emits a **`preview.url`** event (an
+  already-planned event type) at `level:user`, and the app iframes that URL (or reads a
+  `GET /sessions/:id/preview` field) — staying entirely inside the session abstraction,
+  with no raw sandbox handles or sandbox-scoped tokens in the browser. Interim escape
+  hatch (avoid): session-create returns the hands `sandbox_id` and the app calls the
+  existing sandbox preview API directly. The app ships the `preview.url` seam now
+  (`Preview` in `page.tsx`, scans events for `type:"preview.url"`) with a placeholder
+  until the API lands.
+- **Hard without us:** durable per-project sandboxes + a reconnect-by-cursor stream +
+  scoped browser tokens + hibernation — the whole backend of a Lovable-like product, for
+  a handful of `fetch`es.
 
 ### 5b. `slack-teammate/` — a Devin-style teammate with durable threads
 - **What:** mention the bot → it starts a session; **the Slack thread is the session.**
@@ -204,12 +216,12 @@ otherwise).
   is briefly down.
 
 ## 6. Build order
-1. **`web-terminal/`** — the densest proof, zero external app setup. Build it first; it's
-   a complete launchable slice on its own.
+1. **`app-builder/`** ✅ built — the densest proof and a recognizable product (Lovable-
+   style), zero external app setup. Everything except the preview pane (deferred seam).
 2. **`slack-teammate/`** — best steer / `needs_input` / hibernation story.
 3. **`pr-reviewer/`** — best reliable-delivery / survives-crashes story.
 
-Ship-a-day framing: each app is its own launchable; the web terminal leads.
+Ship-a-day framing: each app is its own launchable; the app-builder leads.
 
 ## 7. Conventions
 - **Each top-level dir is self-contained** — own `README.md`, `package.json`, `src/`,
@@ -227,7 +239,7 @@ Ship-a-day framing: each app is its own launchable; the web terminal leads.
 - **Switch on `type`/`level`, never parse prose.** Dedupe webhooks on `webhook-id`.
 
 ## 8. Open questions
-1. **Deploy target.** ✅ **Resolved (§3a):** per-app by nature — `web-terminal` →
+1. **Deploy target.** ✅ **Resolved (§3a):** per-app by nature — `app-builder` →
    Next.js+Vercel (it has a frontend); `pr-reviewer` + `slack-teammate` → Cloudflare
    Worker (pure backend). No app needs always-on; Fly is an unused fallback.
 2. **Repo name.** `oc-sessions-demos` (working name) vs something product-y

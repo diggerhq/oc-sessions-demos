@@ -1,8 +1,8 @@
 {
-  "name": "web-terminal",
+  "name": "app-builder",
   "version": "0.1.0",
   "private": true,
-  "description": "A shareable, resumable agent terminal on OpenComputer Durable Agent Sessions",
+  "description": "A mini app-builder (chat → a running app) on OpenComputer Durable Agent Sessions",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

@@ -1,8 +1,8 @@
 import { mintToken } from "@/oc";
 
-// POST /api/sessions/:id/token  →  { token, expires_at }
-// Mints a fresh client token when a shared link is opened, so a browser can
-// stream + steer that one session without ever seeing the org key.
+// POST /api/projects/:id/token  →  { token, expires_at }
+// Mints a fresh client token when a project is opened, so a browser can stream +
+// steer that one session without ever seeing the org key.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   try {
     return Response.json(await mintToken(params.id));

@@ -14,7 +14,7 @@ OpenComputer backend.
 
 | App | What it is | In the spirit of | What you write |
 |---|---|---|---|
-| [`web-terminal/`](web-terminal) | Start a task, watch it work live in the browser, steer it, share the URL — close the tab and reopen, nothing lost. | a build-in-public agent run | a page + one route |
+| [`app-builder/`](app-builder) | Describe an app → an agent builds it in a sandbox; chat to change it. Each app is a durable project you watch live and come back to. | Lovable / v0 / bolt.new | a 3-pane UI + three routes |
 | [`pr-reviewer/`](pr-reviewer) | Open a PR on a public repo → an agent reviews the diff and posts a comment. | Greptile | a GitHub webhook + the comment |
 | [`slack-teammate/`](slack-teammate) | Mention a bot in Slack → a durable thread you keep talking to; it asks, you answer, it remembers. | Devin | the Slack glue |
 

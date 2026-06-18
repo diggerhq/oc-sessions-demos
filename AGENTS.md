@@ -1,9 +1,9 @@
 # oc-sessions-demos — Guide for Agents
 
 What this is: a demo repo for **Launch #1 — Durable Agent Sessions**. Three
-recognizable agent products (a shareable web terminal, a Greptile-style PR reviewer, a
-Devin-style Slack teammate) built **as thin as possible** on one shared OpenComputer
-backend — to show that the agent-run infrastructure is now a few API calls.
+recognizable agent products (a mini app-builder à la Lovable, a Greptile-style PR
+reviewer, a Devin-style Slack teammate) built **as thin as possible** on one shared
+OpenComputer backend — to show that the agent-run infrastructure is now a few API calls.
 
 ## Read order
 1. `README.md` — the user-facing face of the repo.

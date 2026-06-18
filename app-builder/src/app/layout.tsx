@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agent Terminal",
-  description: "A shareable, resumable agent run on OpenComputer",
+  title: "App Builder",
+  description: "Chat to build a web app — running on OpenComputer",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
