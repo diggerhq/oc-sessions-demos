@@ -164,10 +164,6 @@ docs/architecture.svg
 
 ## Notes
 
-- First run takes ~1–2 minutes while the sandbox cold-starts; steers are fast.
-- Live preview isn't wired yet: the agent runs a dev server in the sandbox, and the UI will
-  iframe a `preview.url` event once the platform emits one. The preview pane shows a
-  placeholder until then.
 - The project link carries the session id; opening it mints a client token server-side. For
   production, require auth before minting and set session
   [`limits`](https://docs.opencomputer.dev/agent-sessions/sessions) to cap spend.

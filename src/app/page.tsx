@@ -128,10 +128,6 @@ export default function Page() {
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // After turn.started but before any real output, the sandbox is provisioning.
-  const hasWork = events.some((e) => ["tool.call", "exec.completed", "agent.message"].includes(e.type));
-  const waiting = status === "live" && events.length > 0 && !hasWork;
-
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -161,9 +157,6 @@ export default function Page() {
             <div className="feed" ref={feedRef}>
               {events.map((ev) => <EventItem key={ev.id} ev={ev} />)}
               {events.length === 0 && <div className="sep">connecting…</div>}
-              {waiting && (
-                <div className="sep">⏳ spinning up a fresh sandbox — the first run can take a minute or two…</div>
-              )}
             </div>
             <div className="composer">
               <input
@@ -219,7 +212,6 @@ function Preview({ events }: { events: Ev[] }) {
     <div className="preview-empty">
       <div className="preview-badge">LIVE PREVIEW</div>
       <p>Your running app will appear here.</p>
-      <p className="dim">Live preview URLs from the session’s sandbox are coming soon.</p>
     </div>
   );
 }
