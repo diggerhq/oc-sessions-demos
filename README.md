@@ -24,69 +24,47 @@ project later are handled by the platform.
 
 ## How it's built
 
-The OpenComputer calls go through the official [`@opencomputer/sdk`](https://www.npmjs.com/package/@opencomputer/sdk).
-A server-side client holds the org key ([`src/oc.ts`](src/oc.ts) — ~3 functions) behind two
-`/api` routes; the browser uses `connectSession` with a session-scoped client token. The org
-key never reaches the browser.
+The whole integration is the official [`@opencomputer/sdk`](https://www.npmjs.com/package/@opencomputer/sdk)
+— a handful of calls. Server-side (in [`src/oc.ts`](src/oc.ts)) you hold the org key; in the
+browser you use a short-lived client token. The org key never reaches the browser.
 
 ### 1. Define the agent
 
-An [agent](https://docs.opencomputer.dev/agent-sessions/agents) is a name, model, and
-prompt. The Anthropic key is passed inline and stored in OpenComputer's
-[secret store](https://docs.opencomputer.dev/agent-sessions/authentication#model-credentials);
-it doesn't enter the sandbox. Creation is idempotent by name, so this runs on first use:
+An [agent](https://docs.opencomputer.dev/agent-sessions/agents) is a name, model, and prompt:
 
 ```ts
-// src/oc.ts
 const oc = new OpenComputer({ apiKey: process.env.OPENCOMPUTER_API_KEY! });
 
-export function ensureAgent() {
-  agentId ??= oc.agents.create({
-    name: "app-builder",
-    model: "anthropic/claude-opus-4-8",
-    runtime: "claude",
-    prompt: BUILDER_AGENT_PROMPT,
-    key: process.env.ANTHROPIC_API_KEY,
-  }).then((a) => a.id);          // create is idempotent by name
-  return agentId;
-}
+const agent = await oc.agents.create({
+  name: "app-builder",
+  model: "anthropic/claude-opus-4-8",
+  prompt,                              // the agent's instructions (src/agent.ts)
+  key: process.env.ANTHROPIC_API_KEY,  // sealed in the secret store — never enters the sandbox
+});                                    // idempotent by name — safe to call on every boot
 ```
 
-The prompt ([`src/agent.ts`](src/agent.ts)) is what makes this an app builder. The agent's
-tools (`bash`, `read`, `write`, `ls`) run against the sandbox.
+The agent works through sandbox tools (`bash`, `read`, `write`, `ls`).
 
-### 2. Start a project (a session)
+### 2. Start a session
 
-A project is a [session](https://docs.opencomputer.dev/agent-sessions/sessions). Starting
-one returns the session and a browser-safe `client_token`:
+Start a [session](https://docs.opencomputer.dev/agent-sessions/sessions) on the agent with a
+task — it runs immediately:
 
 ```ts
-// src/oc.ts
-export async function createProject(input: string) {
-  const agent = await ensureAgent();
-  const session = await oc.sessions.create({ agent, input });
-  return { id: session.id, token: session.clientToken };
-}
+const session = await oc.sessions.create({ agent: agent.id, input });
+
+session.id;           // durable — reopen this run any time
+session.clientToken;  // browser-safe (read + steer) — hand this to the front-end
 ```
 
-The route returns the id and token to the browser
-([`src/app/api/projects/route.ts`](src/app/api/projects/route.ts)):
-
-```ts
-export async function POST(req: Request) {
-  const { input } = await req.json();
-  return Response.json(await createProject(input)); // → { id, token }
-}
-```
-
-OpenComputer provisions the sandbox, runs the agent, and records each step in a durable
-log that survives a server restart or a closed tab.
+OpenComputer provisions the sandbox, runs the agent, and records every step in a durable log
+that survives a server restart or a closed tab.
 
 ### 3. Stream it
 
 From the browser, connect to the session with the client token and tail its events as an
 async iterator. `level=internal` includes the command trace; `after=0` replays the log so
-reopening a project shows its history:
+reopening a session shows its history:
 
 ```ts
 // src/app/page.tsx (client)
@@ -125,8 +103,8 @@ switch (ev.type) {
 }
 ```
 
-Unknown types fall back to their `text`/`summary`, so new ones don't break the UI. That
-covers the backend: `src/oc.ts` and the two routes.
+Unknown types fall back to their `text`/`summary`, so new ones don't break the UI. That's
+the whole integration — five SDK calls.
 
 ## Run it
 
