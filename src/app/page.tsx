@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { connectSession, type Event, type Session } from "@opencomputer/sdk";
+import { connectSession, type Event, type ClientSession } from "@opencomputer/sdk";
 
 // The browser talks to OpenComputer DIRECTLY — streaming and steering — through the
 // SDK, using a short-lived client token from our /api routes. The org key never
@@ -39,7 +39,7 @@ export default function Page() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sessionRef = useRef<Session | null>(null);
+  const sessionRef = useRef<ClientSession | null>(null);
   const acRef = useRef<AbortController | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
 
