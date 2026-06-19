@@ -5,8 +5,14 @@ import { connectSession, type Event, type Session } from "@opencomputer/sdk";
 
 // The browser talks to OpenComputer DIRECTLY — streaming and steering — through the
 // SDK, using a short-lived client token from our /api routes. The org key never
-// reaches here. `baseUrl` is optional (defaults to the public API).
-const OC_BASE = process.env.NEXT_PUBLIC_OC_API_URL;
+// reaches here. The SDK's baseUrl includes /v3; accept the bare origin too. Undefined
+// → the SDK default.
+const OC_BASE = (() => {
+  const u = process.env.NEXT_PUBLIC_OC_API_URL;
+  if (!u) return undefined;
+  const t = u.replace(/\/+$/, "");
+  return /\/v3$/.test(t) ? t : `${t}/v3`;
+})();
 
 type Project = { id: string; status: string; created_at?: string };
 type Status = "idle" | "connecting" | "live" | "reconnecting";
