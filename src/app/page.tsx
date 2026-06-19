@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { connectSession, type Event, type Session } from "@opencomputer/sdk";
 
-// The browser talks to OpenComputer DIRECTLY — streaming and steering — using a
-// short-lived client token from our /api routes. The org key never reaches here.
-const OC = process.env.NEXT_PUBLIC_OC_API_URL ?? "https://api.opencomputer.dev";
+// The browser talks to OpenComputer DIRECTLY — streaming and steering — through the
+// SDK, using a short-lived client token from our /api routes. The org key never
+// reaches here. `baseUrl` is optional (defaults to the public API).
+const OC_BASE = process.env.NEXT_PUBLIC_OC_API_URL;
 
-type Ev = { id: string; seq: number; type: string; level: string; body?: any };
 type Project = { id: string; status: string; created_at?: string };
 type Status = "idle" | "connecting" | "live" | "reconnecting";
 
@@ -24,7 +25,7 @@ function getTitle(id: string) {
 export default function Page() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [events, setEvents] = useState<Ev[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [newText, setNewText] = useState("");
   const [steer, setSteer] = useState("");
@@ -32,15 +33,15 @@ export default function Page() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const esRef = useRef<EventSource | null>(null);
-  const tokenRef = useRef<string>("");
+  const sessionRef = useRef<Session | null>(null);
+  const acRef = useRef<AbortController | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadProjects();
     const id = new URLSearchParams(window.location.search).get("p");
     if (id) open(id);
-    return () => esRef.current?.close();
+    return () => acRef.current?.abort();
   }, []);
 
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight }); }, [events]);
@@ -64,27 +65,33 @@ export default function Page() {
     try {
       const { token, error } = await (await fetch(`/api/projects/${id}/token`, { method: "POST" })).json();
       if (error || !token) { setStatus("idle"); return setError(error || "Couldn't open this project."); }
-      openStream(id, token);
+      await openStream(id, token);
     } catch {
       setStatus("idle");
       setError("Couldn't open this project.");
     }
   }
 
-  function openStream(id: string, token: string) {
-    esRef.current?.close();
-    tokenRef.current = token;
-    // level=internal → every build step: tool calls + commands as cards, plus the
-    // agent's messages and your steers. after=0 replays the full log on open (the whole
-    // conversation); each event's seq is the SSE id, so EventSource auto-resumes on reconnect.
-    const es = new EventSource(`${OC}/v3/sessions/${id}/events?stream=sse&level=internal&after=0&token=${token}`);
-    es.onopen = () => setStatus("live");
-    es.onmessage = (e) => {
-      const ev = JSON.parse(e.data) as Ev;
-      setEvents((prev) => (prev.some((p) => p.id === ev.id) ? prev : [...prev, ev]));
-    };
-    es.onerror = () => setStatus("reconnecting"); // retries via Last-Event-ID
-    esRef.current = es;
+  // Connect with the client token and tail the event stream via the SDK. level=internal
+  // → every build step: tool calls + commands as cards, plus the agent's messages and
+  // your steers. after=0 replays the full log on open; the SDK reconnects from the last
+  // seq on a dropped connection, so the feed self-heals.
+  async function openStream(id: string, token: string) {
+    acRef.current?.abort();
+    const ac = new AbortController();
+    acRef.current = ac;
+    const session = await connectSession({ sessionId: id, clientToken: token, baseUrl: OC_BASE });
+    sessionRef.current = session;
+    setStatus("live");
+    (async () => {
+      try {
+        for await (const ev of session.events({ level: "internal", after: 0, signal: ac.signal })) {
+          setEvents((prev) => (prev.some((p) => p.id === ev.id) ? prev : [...prev, ev]));
+        }
+      } catch {
+        if (!ac.signal.aborted) setStatus("reconnecting");
+      }
+    })();
   }
 
   async function create() {
@@ -108,7 +115,7 @@ export default function Page() {
       setEvents([]);
       setStatus("connecting");
       history.replaceState(null, "", `?p=${id}`);
-      openStream(id, token);
+      await openStream(id, token);
     } catch {
       setError("Couldn't start the project.");
     } finally {
@@ -118,15 +125,10 @@ export default function Page() {
 
   async function send() {
     const text = steer.trim();
-    if (!text || !selected) return;
+    if (!text || !sessionRef.current) return;
     setSteer("");
     try {
-      const res = await fetch(`${OC}/v3/sessions/${selected}/messages`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tokenRef.current}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) throw new Error();
+      await sessionRef.current.steer(text);
     } catch {
       setSteer(text);   // keep what they typed
       setError("Couldn't send that message — try again.");
@@ -134,7 +136,7 @@ export default function Page() {
   }
 
   function newProject() {
-    esRef.current?.close();
+    acRef.current?.abort();
     setSelected(null);
     setEvents([]);
     setError(null);
@@ -230,8 +232,9 @@ export default function Page() {
 // The preview seam: when the platform exposes the sandbox's dev server it emits a
 // `preview.url` event — we just iframe whatever URL it carries. Until that ships,
 // show a placeholder. (See the repo design doc on preview reconciliation.)
-function Preview({ events }: { events: Ev[] }) {
-  const url = [...events].reverse().find((e) => e.type === "preview.url")?.body?.url;
+function Preview({ events }: { events: Event[] }) {
+  const ev = [...events].reverse().find((e) => e.type === "preview.url");
+  const url = ev ? (ev.body as any).url : undefined;
   if (url) return <iframe className="frame" src={url} title="app preview" />;
   return (
     <div className="preview-empty">
@@ -244,8 +247,8 @@ function Preview({ events }: { events: Ev[] }) {
 // Render one event as a build-trace item. Switch on `type` — never parse prose.
 // The trace shows what the agent actually does: its narration, the commands it runs,
 // and their output. (The model's private reasoning is not surfaced by the API.)
-function EventItem({ ev }: { ev: Ev }) {
-  const b = ev.body ?? {};
+function EventItem({ ev }: { ev: Event }) {
+  const b = (ev.body ?? {}) as any;
   switch (ev.type) {
     case "user.message":
       return <div className="bubble you">{b.text}</div>;
@@ -255,14 +258,14 @@ function EventItem({ ev }: { ev: Ev }) {
         ? <div className="bubble agent">{b.text}</div>
         : <div className="narrate">{b.text}</div>;
     case "tool.call":
-      return <div className="cmd"><span className="prompt">$</span>{b.args_summary || b.tool || "tool"}</div>;
+      return <div className="cmd"><span className="prompt">$</span>{b.argsSummary || b.tool || "tool"}</div>;
     case "exec.completed": {
-      const ok = Number(b.exit_code) === 0;
+      const ok = Number(b.exitCode) === 0;
       return (
         <div className="exec">
           <div className="exec-head">
-            <span className={`exit ${ok ? "ok" : "bad"}`}>exit {b.exit_code}</span>
-            {b.content_ref && <span className="ref">large output{b.bytes ? ` · ${b.bytes}B` : ""}</span>}
+            <span className={`exit ${ok ? "ok" : "bad"}`}>exit {b.exitCode}</span>
+            {b.contentRef && <span className="ref">large output{b.bytes ? ` · ${b.bytes}B` : ""}</span>}
           </div>
           {b.summary ? <pre className="exec-out">{b.summary}</pre> : null}
         </div>
@@ -271,7 +274,7 @@ function EventItem({ ev }: { ev: Ev }) {
     case "turn.started":
       return <div className="sep">● working…</div>;
     case "turn.completed": {
-      const r = b.yield_reason;
+      const r = b.yieldReason;
       if (r === "needs_input") return <div className="sep">✋ waiting for you</div>;
       if (r === "completed" || r == null) return <div className="sep done">✓ done</div>;
       if (r === "canceled") return <div className="sep">■ canceled</div>;
@@ -279,7 +282,7 @@ function EventItem({ ev }: { ev: Ev }) {
       return <div className="sep bad">⚠ stopped: {String(r).replace(/_/g, " ")}</div>;
     }
     case "agent.result":
-      return b.num_turns ? <div className="sep">finished · {b.num_turns} steps</div> : null;
+      return b.numTurns ? <div className="sep">finished · {b.numTurns} steps</div> : null;
     default:
       if (ev.type.startsWith("error"))
         return <div className="err">{b.code ?? ev.type}: {b.message ?? ""}</div>;

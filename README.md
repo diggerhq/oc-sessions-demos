@@ -14,7 +14,7 @@ This repo is the app, and a walkthrough of how it's built.
 | You write | OpenComputer provides |
 | --- | --- |
 | a prompt (the agent) | the agent loop and a sandbox to run commands in |
-| ~3 API calls (`src/oc.ts`) | a durable log of every step |
+| ~3 SDK calls (`src/oc.ts`) | a durable log of every step |
 | a chat UI that renders events | live streaming and resume from any point |
 | | hibernation while idle, wake on the next message |
 | | session-scoped tokens the browser can use directly |
@@ -24,9 +24,10 @@ project later are handled by the platform.
 
 ## How it's built
 
-The OpenComputer calls are in [`src/oc.ts`](src/oc.ts) (~40 lines) plus two `/api` routes.
-Base URL `https://api.opencomputer.dev/v3`. Management calls use the org API key
-(server-side only); the browser uses a client token.
+The OpenComputer calls go through the official [`@opencomputer/sdk`](https://www.npmjs.com/package/@opencomputer/sdk).
+A server-side client holds the org key ([`src/oc.ts`](src/oc.ts) — ~3 functions) behind two
+`/api` routes; the browser uses `connectSession` with a session-scoped client token. The org
+key never reaches the browser.
 
 ### 1. Define the agent
 
@@ -37,17 +38,16 @@ it doesn't enter the sandbox. Creation is idempotent by name, so this runs on fi
 
 ```ts
 // src/oc.ts
+const oc = new OpenComputer({ apiKey: process.env.OPENCOMPUTER_API_KEY! });
+
 export function ensureAgent() {
-  agentId ??= oc("/agents", {
-    method: "POST",
-    body: JSON.stringify({
-      name: "app-builder",
-      model: "anthropic/claude-opus-4-8",
-      runtime: "claude",
-      prompt: BUILDER_AGENT_PROMPT,
-      key: process.env.ANTHROPIC_API_KEY,
-    }),
-  }).then((a) => a.id);
+  agentId ??= oc.agents.create({
+    name: "app-builder",
+    model: "anthropic/claude-opus-4-8",
+    runtime: "claude",
+    prompt: BUILDER_AGENT_PROMPT,
+    key: process.env.ANTHROPIC_API_KEY,
+  }).then((a) => a.id);          // create is idempotent by name
   return agentId;
 }
 ```
@@ -64,11 +64,8 @@ one returns the session and a browser-safe `client_token`:
 // src/oc.ts
 export async function createProject(input: string) {
   const agent = await ensureAgent();
-  const { session, client_token } = await oc("/sessions", {
-    method: "POST",
-    body: JSON.stringify({ agent, input }),
-  });
-  return { id: session.id, token: client_token };
+  const session = await oc.sessions.create({ agent, input });
+  return { id: session.id, token: session.clientToken };
 }
 ```
 
@@ -87,46 +84,43 @@ log that survives a server restart or a closed tab.
 
 ### 3. Stream it
 
-From the browser, open an `EventSource` to OpenComputer with the client token. `level=internal`
-includes the command trace; `after=0` replays the log so reopening a project shows its
-history:
+From the browser, connect to the session with the client token and tail its events as an
+async iterator. `level=internal` includes the command trace; `after=0` replays the log so
+reopening a project shows its history:
 
 ```ts
 // src/app/page.tsx (client)
-const es = new EventSource(
-  `${OC}/v3/sessions/${id}/events?stream=sse&level=internal&after=0&token=${token}`,
-);
-es.onmessage = (e) => addEvent(JSON.parse(e.data));
+const session = await connectSession({ sessionId: id, clientToken: token });
+for await (const ev of session.events({ level: "internal", after: 0, signal })) {
+  addEvent(ev);
+}
 ```
 
-Each event's `seq` is the SSE id, so `EventSource` reconnects from where it left off via
-`Last-Event-ID`.
+The SDK reconnects from the last `seq` on a dropped connection and keeps tailing until the
+`signal` aborts, so the feed self-heals.
 
 ### 4. Steer it
 
-Send a follow-up at any time, also from the browser. An idle session wakes and continues
-with its context:
+Send a follow-up at any time, also from the browser — on the same `session` handle. An idle
+session wakes and continues with its context:
 
 ```ts
 // src/app/page.tsx (client)
-await fetch(`${OC}/v3/sessions/${id}/messages`, {
-  method: "POST",
-  headers: { Authorization: `Bearer ${clientToken}`, "Content-Type": "application/json" },
-  body: JSON.stringify({ text: "add a dark-mode toggle" }),
-});
+await session.steer("add a dark-mode toggle");
 ```
 
 ### 5. Render events
 
-Each step is an [event](https://docs.opencomputer.dev/agent-sessions/events) with a typed
-`type` field; the UI switches on it ([`src/app/page.tsx`](src/app/page.tsx)):
+Each step is an [event](https://docs.opencomputer.dev/agent-sessions/events). The SDK types
+them as a discriminated `Event` union (camelCase fields); the UI switches on `type`
+([`src/app/page.tsx`](src/app/page.tsx)):
 
 ```tsx
 switch (ev.type) {
   case "user.message":   return <Bubble you>{ev.body.text}</Bubble>;
   case "agent.message":  return <Bubble>{ev.body.text}</Bubble>;
-  case "tool.call":      return <Command>$ {ev.body.args_summary}</Command>;
-  case "exec.completed": return <Output exit={ev.body.exit_code}>{ev.body.summary}</Output>;
+  case "tool.call":      return <Command>$ {ev.body.argsSummary}</Command>;
+  case "exec.completed": return <Output exit={ev.body.exitCode}>{ev.body.summary}</Output>;
   case "turn.completed": return <Done />;
 }
 ```
