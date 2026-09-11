@@ -1,7 +1,7 @@
 # 001 — App Builder on Durable Agent Sessions
 
 Status: **active** — design + learnings for this demo repo. Companion to the launch SoT
-(`oc-bg-agents/.agents/work/launch-durable-agent-sessions.md`) and the shipped user docs
+(`serverless-agents-ws/.agents/archive-durable-agent-sessions/.agents/work/launch-durable-agent-sessions.md`; the `oc-bg-agents` repository is retired) and the shipped user docs
 (`opencomputer` branch `docs/durable-sessions`, `docs/agent-sessions/*`). Where this and
 the shipped docs disagree on the API, **the docs win** — pin against them.
 
